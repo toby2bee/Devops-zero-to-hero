@@ -1,0 +1,84 @@
+# This is a basic workflow to help you get started with Actions
+
+name: CI
+
+# Controls when the workflow will run
+on:
+  # # Triggers the workflow on push or pull request events but only for the "main" branch
+  # push:
+  #   branches: [ "main" ]
+  # # pull_request:
+  # #   branches: [ "main" ]
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+env:
+  AWS_REGION: "ap-south-1"
+
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+jobs:
+  # This workflow contains a single job called "build"
+  build:
+    # The type of runner that the job will run on
+    runs-on: ubuntu-latest
+
+    # Steps represent a sequence of tasks that will be executed as part of the job
+    steps:
+      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+      - uses: actions/checkout@v3
+
+      # Runs a single command using the runners shell
+      - name: Run a one-line script
+        run: echo Hello, world!
+        
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY  }}
+          ECR_REPO: "366140438193.dkr.ecr.ap-south-1.amazonaws.com/docker-demo"
+
+      # Runs a set of commands using the runners shell
+      - name: Install openssh
+        run: |
+          sudo apt-get install -y openssh-client
+
+      - name: get public ip
+        id: set-pubip-env
+        run: |
+          echo "EC2_PUBLIC_IP_ENV=$(aws ec2 describe-instances --filters "Name=tag:Name,Values=docker-demo" --query 'Reservations[*].Instances[*].PublicIpAddress' --output text)" >> "$GITHUB_ENV"          
+      
+      - name: set-pubip-output
+        run: |
+          echo "EC2_PUBLIC_IP_OUT=$(aws ec2 describe-instances --filters "Name=tag:Name,Values=docker-demo" --query 'Reservations[*].Instances[*].PublicIpAddress' --output text)" >> "$GITHUB_OUTPUT"
+
+      - name: print env
+        run: echo ${{ env.EC2_PUBLIC_IP_ENV }}
+
+      - name: print out
+        run: echo ${{ steps.set-pubip-output.outputs.EC2_PUBLIC_IP_OUT }}
+
+      - name: executing remote ssh commands using ssh key
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ env.EC2_PUBLIC_IP_ENV }}
+          username: ec2-user
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: 22
+          script: |
+            docker image ls
+            echo "removing old stuff"
+            docker rm -f $(docker ps -aq)
+            docker rmi -f $(docker images -q)
+            echo "running container"
+            aws ecr get-login-password --region ap-south-1 | docker login --username AWS --password-stdin 366140438193.dkr.ecr.ap-south-1.amazonaws.com
+            docker pull 366140438193.dkr.ecr.ap-south-1.amazonaws.com/docker-demo:latest
+            docker run -itd -p 80:5000 --name flask-app 366140438193.dkr.ecr.ap-south-1.amazonaws.com/docker-demo:latest
+
+
+
+            
+  
+
+      
+
